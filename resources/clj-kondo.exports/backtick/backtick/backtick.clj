@@ -1,29 +1,3 @@
-;; Copyright (c) 2021 EPITA Research and Development Laboratory
-;;
-;; Permission is hereby granted, free of charge, to any person obtaining
-;; a copy of this software and associated documentation
-;; files (the "Software"), to deal in the Software without restriction,
-;; including without limitation the rights to use, copy, modify, merge,
-;; publish, distribute, sublicense, and/or sell copies of the Software,
-;; and to permit persons to whom the Software is furnished to do so,
-;; subject to the following conditions:
-;;
-;; The above copyright notice and this permission notice shall be
-;; included in all copies or substantial portions of the Software.
-;;
-;; THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-;; EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-;; MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-;; NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-;; LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-;; OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-;; WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-;; The content of this file is mostly 99% a copy of backtick.clj which
-;; is part of the backtick project.  However, a few lines have been changed
-;; to make it compatible with clj-kondo.
-
-
 (ns backtick
   (:refer-clojure :exclude [resolve]))
 
@@ -31,7 +5,7 @@
 
 (def ^:dynamic ^:private *gensyms*)
 
-(defn error [msg form]
+(defn backtick-error [msg form]
   (throw (ex-info msg {:form form})))
 
 (defn- resolve [sym]
@@ -46,13 +20,10 @@
       (*resolve* sym))))
 
 (defn unquote? [form]
-  (and (seq? form) (or (= (first form) 'clojure.core/unquote)
-                       (= (first form) 'unquote)
-                       )))
+  (and (seq? form) (= (first form) 'clojure.core/unquote)))
 
 (defn unquote-splicing? [form]
-  (and (seq? form) (or (= (first form) 'clojure.core/unquote-splicing)
-                       (= (first form) 'unquote-splicing))))
+  (and (seq? form) (= (first form) 'clojure.core/unquote-splicing)))
 
 (defn inert? [x]
   (or (nil? x)
@@ -76,7 +47,7 @@
       (map? coll) `(apply hash-map ~cat)
       (set? coll) `(set ~cat)
       (seq? coll) `(apply list ~cat)
-      :else (error "Unknown collection type" coll))))
+      :else (backtick-error "Unknown collection type" coll))))
 
 (defn quote-items [coll]
   ((cond
@@ -84,7 +55,7 @@
      (map? coll) #(into {} %)
      (set? coll) set
      (seq? coll) #(list* 'list (doall %))
-     :else (error "Unknown collection type" coll))
+     :else (backtick-error "Unknown collection type" coll))
    (map quote-fn* coll)))
 
 (defn- quote-fn* [form]
@@ -92,11 +63,21 @@
     (inert? form) form
     (symbol? form) `'~(resolve form)
     (unquote? form) (second form)
-    (unquote-splicing? form) (error "splice not in collection" form)
+    (unquote-splicing? form) (backtick-error "splice not in list" form)
     (record? form) `'~form
-    (coll? form) (if (some unquote-splicing? form)
-                   (splice-items form)
-                   (quote-items form))
+    (coll? form)
+      (let [xs (if (map? form) (apply concat form) form)
+            parts (for [x xs]
+                    (if (unquote-splicing? x)
+                      (second x)
+                      [(quote-fn* x)]))
+            cat (doall `(concat ~@parts))]
+        (cond
+          (vector? form) `(vec ~cat)
+          (map? form) `(apply hash-map ~cat)
+          (set? form) `(set ~cat)
+          (seq? form) `(apply list ~cat)
+          :else (backtick-error "Unknown collection type" form))))
     :else `'~form))
 
 (defn quote-fn [resolver form]
