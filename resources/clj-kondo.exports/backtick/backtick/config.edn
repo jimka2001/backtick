@@ -1,3 +1,4 @@
-{:hooks {
+{:lint-as {backtick/defquote clojure.core/declare}
+ :hooks {
          ;; {:macroexpand {app.bar/baz hook.bar/baz}}}
          :macroexpand {backtick/template     backtick/template}}}
